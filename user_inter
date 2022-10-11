@@ -1,0 +1,302 @@
+from flask import Flask
+from flask import render_template
+from covid_news_handling import *
+from covid_data_handler import *
+import time
+import sched
+from flask import request
+from DateTime import *
+
+# Instantiation of the Flask application
+app = Flask(__name__)
+
+# Instantiation of the scheduler
+s = sched.scheduler(time.time, time.sleep)
+p = sched.scheduler(time.time, time.sleep)
+
+
+# Variables containing the title and the contents of the news articles from the API
+news_titles = news_api_request()
+news_content = news_api_request_content()
+
+
+# List of dictionaries to allow the news to be displayed on the dashboard
+news = [
+        {
+            'title': news_titles[0],
+            'content': news_content[0]
+        }
+    ]
+
+
+news_titles.remove(news_titles[0])
+news_content.remove(news_content[0])
+
+
+"""Adds the latest news from the API to the dashboard 
+Parameters:
+update_name (str): Name given by the user for the update on the dashboard form 
+
+Returns:
+None 
+"""
+
+
+def add_news_article():
+    news.append({
+        'title': news_titles[0],
+        'content': news_content[0]
+    })
+
+    news_titles.remove(news_titles[0])
+    news_content.remove(news_content[0])
+
+
+# List to hold the name of the updates
+update = []
+
+
+"""Adds the latest scheduled news update from the user to the dashboard 
+Parameters:
+update_name (str): Name given by the user for the update on the dashboard form 
+
+Returns:
+None 
+"""
+
+
+def add_update_news(update_name):
+    cross = request.args.get('update_item')
+    update_interval = request.args.get('update')
+    update.append({
+        'title': update_name,
+        'content': "Scheduled news update time: " + update_interval
+    })
+    if cross:
+        update.pop()
+
+
+"""Adds the latest scheduled data update from the user to the dashboard 
+Parameters:
+update_name (str): Name given by the user for the update on the dashboard form 
+
+Returns:
+None 
+"""
+
+
+def add_update_cd(update_name):
+    update_interval = request.args.get('update')
+    update.append({
+        'title': update_name,
+        'content': "Scheduled covid data update time: " + update_interval
+    })
+
+
+"""Adds the latest scheduled update for both data and news from the user to the dashboard 
+Parameters:
+update_name (str): Name given by the user for the update on the dashboard form 
+
+Returns:
+None 
+"""
+
+
+def add_update_both(update_name):
+    update_interval = request.args.get('update')
+    update.append({
+        'title': update_name,
+        'content': "Scheduled update time for covid data and news: " + update_interval
+    })
+
+
+"""Adds the latest scheduled repeated update from the user to the dashboard 
+Parameters:
+update_name (str): Name given by the user for the update on the dashboard form 
+
+Returns:
+None 
+"""
+
+
+def add_repeated_update(update_name):
+    update_interval = request.args.get('update')
+    update.append({
+        'title': update_name,
+        'content': "Scheduled repeat time: " + update_interval
+    })
+
+
+"""Adds the news to the dashboard at the time that the user specified 
+
+Parameters: 
+None
+
+Returns:
+None
+"""
+
+
+def remove_update():
+    update.remove(update[0])
+
+
+"""Requests the latest news articles from the API at the time that the user specified 
+
+Parameters: 
+None
+
+Returns:
+None
+"""
+
+
+def schedule_add_news():
+    update_interval = request.args.get('update')
+    update_int = hhmm_to_seconds(update_interval)
+    hours = DateTime().hour()
+    minutes = DateTime().minute()
+    hours = mins_to_secs(str(hours_to_mins(str(hours))))
+    minutes = mins_to_secs(str(minutes))
+    current_time = hours + minutes
+    if current_time > update_int:
+        update_int = int(current_time - update_int)
+    else:
+        update_int = int(update_int - current_time)
+    e1 = s.enter(update_int, 1, add_news_article, ())
+    logging.info("News update successfully scheduled at: " + update_interval)
+    if len(update) > 0:
+        e3 = s.enter(update_int, 2, remove_update, ())
+        logging.info(e3)
+
+
+"""Requests the latest covid data from the API at the time that the user specified 
+
+Parameters: 
+None
+
+Returns:
+None
+"""
+
+
+def schedule_update_data():
+    update_interval = request.args.get('update')
+    update_int = hhmm_to_seconds(update_interval)
+    hours = DateTime().hour()
+    minutes = DateTime().minute()
+    hours = mins_to_secs(hours_to_mins(str(hours)))
+    minutes = mins_to_secs(str(minutes))
+    current_time = hours + minutes
+    if current_time > update_int:
+        update_int = int(current_time - update_int)
+    else:
+        update_int = int(update_int - current_time)
+    e2 = p.enter(update_int, 1, covid_api_request, ())
+    logging.info("Data update successfully scheduled at " + update_interval)
+    if len(update) > 0:
+        e4 = p.enter(update_int, 2, remove_update, ())
+        logging.debug(e4)
+
+
+def schedule_both():
+    update_interval = request.args.get('update')
+    update_int = hhmm_to_seconds(update_interval)
+    hours = DateTime().hour()
+    minutes = DateTime().minute()
+    hours = mins_to_secs(hours_to_mins(str(hours)))
+    minutes = mins_to_secs(str(minutes))
+    current_time = hours + minutes
+    if current_time > update_int:
+        update_int = int(current_time - update_int)
+    else:
+        update_int = int(update_int - current_time)
+    e5 = s.enter(update_int, 1, add_news_article, ())
+    e6 = s.enter(update_int, 2, covid_api_request, ())
+    logging.info("News and data update successfully scheduled at " + update_interval)
+    if len(update) > 0:
+        e7 = s.enter(update_int, 3, remove_update, ())
+        logging.debug(e7)
+
+
+""" Function to render the HTML template and allow for
+    scheduled events to take place 
+
+Parameters:
+data_api (dict): Dictionary of the latest data from the covid API 
+
+
+Returns:
+render_template('index.html',
+                           title='Daily update',
+                           news_articles=news,
+                           updates=update,
+                           location='Exeter',
+                           local_7day_infections=data_api['last7days_cases_loc'],
+                           nation_location='England',
+                           national_7day_infections=data_api['last7days_cases_nat'],
+                           hospital_cases=data_api['hosp_cases'],
+                           deaths_total=data_api['tot_deaths']): Renders the template /
+                           and assigns the data to the corresponding part of the HTML file
+"""
+
+
+@app.route('/index')
+def index(data_api: dict = covid_api_request()):
+    """ Running the scheduler and ensuring it doesn't force the website to
+    load until the scheduled event takes place
+    """
+    s.run(blocking=False)
+    p.run(blocking=False)
+
+    # Assigning HTML elements to a variable to allow them to be edited with Python
+    word = request.args.get('two')
+    cross_news = request.args.get('notif')
+    cross_update = request.args.get('update_item')
+    repeat = request.args.get('repeat')
+    news_up = request.args.get('news')
+    data_up = request.args.get('covid-data')
+
+    # Checking to see whether the user entered an update label and what they want to happen
+    if word and news_up and data_up:
+        add_update_both(word)
+        schedule_both()
+    elif word and data_up:
+        add_update_cd(word)
+        schedule_update_data()
+    elif word and news_up:
+        add_update_news(word)
+        schedule_add_news()
+    elif word and repeat:
+        add_repeated_update(word)
+
+    # Removing an article from the dashboard when the user clicks the cross
+    if cross_news:
+        news.remove(news[0])
+        logging.debug("Oldest news article was successfully removed")
+
+    if cross_update:
+        remove_update()
+
+    return render_template('index.html',
+                           title='Daily update',
+                           news_articles=news,
+                           updates=update,
+                           location='Exeter',
+                           local_7day_infections=data_api['last7days_cases_loc'],
+                           nation_location='England',
+                           national_7day_infections=data_api['last7days_cases_nat'],
+                           hospital_cases=data_api['hosp_cases'],
+                           deaths_total=data_api['tot_deaths'])
+
+
+""" Checks to see if the module is the main module, if it isn't, then the application won't run
+
+Parameters:
+None
+
+Returns:
+None 
+"""
+if __name__ == "__main__":
+    app.run()
